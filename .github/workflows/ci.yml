@@ -1,0 +1,86 @@
+name: CI (Laravel Tests)
+
+# いつ実行するか
+on:
+  push:
+    branches: [ master, main, develop ]  # これらのブランチにpushされた時
+  pull_request:
+    branches: [ master, main, develop ]  # プルリクエストが作られた時
+
+jobs:
+  laravel-tests:
+    runs-on: ubuntu-latest  # Ubuntu環境で実行
+
+    # 必要なサービス(データベースなど)
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      # ステップ1: コードをチェックアウト(取得)
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ステップ2: PHPのセットアップ
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'  # PHPのバージョン(必要に応じて変更)
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, sqlite, pdo_mysql
+          coverage: none
+
+      # ステップ3: Composerのキャッシュ(高速化のため)
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: src/vendor
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      # ステップ4: 依存関係のインストール
+      - name: Install Composer dependencies
+        working-directory: ./src
+        run: composer install --prefer-dist --no-progress --no-suggest
+
+      # ステップ5: .envファイルのコピー
+      - name: Copy .env file
+        working-directory: ./src
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      # ステップ6: 環境変数の設定
+      - name: Set environment variables
+        working-directory: ./src
+        run: |
+          echo "DB_CONNECTION=mysql" >> .env
+          echo "DB_HOST=127.0.0.1" >> .env
+          echo "DB_PORT=3306" >> .env
+          echo "DB_DATABASE=test_db" >> .env
+          echo "DB_USERNAME=root" >> .env
+          echo "DB_PASSWORD=password" >> .env
+
+      # ステップ7: データベースマイグレーション
+      - name: Run migrations
+        working-directory: ./src
+        run: php artisan migrate --force
+
+      # ステップ8: テストの実行(ここが一番重要!)
+      - name: Run tests
+        working-directory: ./src
+        run: php artisan test
+
+      # ステップ9(オプション): テストカバレッジの確認
+      # - name: Run tests with coverage
+      #   working-directory: ./src
+      #   run: php artisan test --coverage
